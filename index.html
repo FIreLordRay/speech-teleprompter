@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="A free, browser-based teleprompter. Import a Word, .txt or .md speech, set your pace in words per minute, and present.">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+<title>Speech Teleprompter</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: full-height stage, script rolls past a fixed reading line; slim control dock below. Single dark look by choice (prompter glass). */
+:root {
+  --stage: #07090c;
+  --panel: #10141a;
+  --line: #222a35;
+  --text: #f3f5f7;
+  --dim: #7d8794;
+  --cue: #ffb547;
+  --accent: #5cc8ff;
+  --script: "Atkinson Hyperlegible", "Segoe UI", Verdana, sans-serif;
+  --ui: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--stage); color: var(--text); font-family: var(--ui); overflow: hidden; }
+.app { height: 100%; display: flex; flex-direction: column; }
+
+/* Stage */
+.stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.scroller { height: 100%; overflow-y: scroll; scrollbar-width: none; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.scroller::-webkit-scrollbar { display: none; }
+.script { max-width: var(--width, 34ch); margin: 0 auto; font-family: var(--script); font-size: var(--size, 56px); line-height: 1.45; padding-block: 40vh 70vh; transition: transform .2s; }
+.script.mirror { transform: scaleX(-1); }
+.script p { margin: 0 0 .9em; }
+.script h2 { font-family: var(--ui); font-size: .42em; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin: 1.4em 0 .6em; font-weight: 600; }
+.script .cue { display: inline-block; font-family: var(--ui); font-size: .36em; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; color: var(--stage); background: #8fb08a; border-radius: 999px; padding: .15em .8em; vertical-align: middle; }
+.script .e { color: var(--cue); font-weight: 700; }
+.script .br { color: #5f7a5a; font-weight: 700; padding: 0 .1em; }
+.script .key { background: #3d3815; border-radius: .12em; padding: 0 .15em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.script .name { background: #4a1f18; color: #ffb8a8; font-weight: 700; border-radius: .12em; padding: 0 .2em; }
+.reading-line { position: absolute; left: 0; right: 0; top: 40%; height: 0; pointer-events: none; }
+.reading-line::before, .reading-line::after { content: ""; position: absolute; top: -14px; border: 14px solid transparent; }
+.reading-line::before { left: 4px; border-left-color: var(--accent); }
+.reading-line::after { right: 4px; border-right-color: var(--accent); }
+.fade-top, .fade-bot { position: absolute; left: 0; right: 0; pointer-events: none; }
+.fade-top { top: 0; height: 22%; background: linear-gradient(var(--stage), transparent); }
+.fade-bot { bottom: 0; height: 30%; background: linear-gradient(transparent, var(--stage)); }
+.countdown { position: absolute; inset: 0; display: grid; place-items: center; font-size: 30vmin; font-weight: 600; color: var(--accent); background: rgba(7,9,12,.75); }
+
+/* Dock */
+.dock { border-top: 1px solid var(--line); background: var(--panel); padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; transition: opacity .3s; }
+.app.playing.hide-ui .dock { opacity: 0; }
+.app.playing.hide-ui .dock:hover { opacity: 1; }
+button { font: inherit; font-size: 14px; color: var(--text); background: #1a212b; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+button:hover { border-color: var(--dim); }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+#play { background: var(--accent); color: #04121b; border-color: var(--accent); font-weight: 600; min-width: 96px; }
+.group { display: flex; align-items: center; gap: 8px; }
+label { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+input[type=range] { width: 110px; accent-color: var(--accent); }
+.val { font-variant-numeric: tabular-nums; font-size: 13px; min-width: 4.5ch; color: var(--text); }
+.clock { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 14px; color: var(--dim); }
+.clock b { color: var(--text); font-weight: 600; }
+
+/* Editor */
+.editor { position: fixed; inset: 0; background: rgba(4,6,9,.92); display: grid; place-items: center; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px; z-index: 20; }
+.editor-card { width: min(760px, 100%); max-height: 100%; display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; min-width: 0; }
+.editor-card h1 { margin: 0; font-size: 20px; font-weight: 600; }
+.editor-card p { margin: 0; color: var(--dim); font-size: 13px; line-height: 1.5; }
+.editor-card code { color: var(--cue); }
+textarea.drag { border-color: var(--accent); border-style: dashed; }
+textarea { width: 100%; box-sizing: border-box; min-height: 45vh; flex: 1; resize: vertical; background: var(--stage); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 14px; font: 16px/1.55 var(--script); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.row .meta { margin-right: auto; color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+.keys { font-size: 12px; color: var(--dim); }
+@media (prefers-reduced-motion: reduce) { .script, .dock { transition: none; } }
+@media (max-width: 640px) { .clock { margin-left: 0; width: 100%; } input[type=range] { width: 80px; } }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="stage" id="stage">
+    <div class="scroller" id="scroller"><div class="script" id="script"></div></div>
+    <div class="fade-top"></div><div class="fade-bot"></div>
+    <div class="reading-line" aria-hidden="true"></div>
+    <div class="countdown" id="countdown" hidden></div>
+  </div>
+
+  <div class="dock" id="dock">
+    <button id="play" title="Space">Start</button>
+    <button id="restart" title="Home">Restart</button>
+    <button id="edit">Edit / import script</button>
+    <div class="group"><label for="wpm">Pace</label><input type="range" id="wpm" min="80" max="220" step="5" value="140"><span class="val" id="wpmVal">140 wpm</span></div>
+    <div class="group"><label for="size">Text</label><input type="range" id="size" min="28" max="110" step="2" value="56"><span class="val" id="sizeVal">56px</span></div>
+    <div class="group"><label for="width">Width</label><input type="range" id="width" min="18" max="60" step="1" value="34"></div>
+    <button id="mirror" aria-pressed="false">Mirror</button>
+    <button id="full">Fullscreen</button>
+    <div class="clock"><b id="elapsed">0:00</b> elapsed · <span id="remain">0:00</span> left · <span id="total">0:00</span> total</div>
+  </div>
+</div>
+
+<div class="editor" id="editor" hidden>
+  <div class="editor-card">
+    <h1>Your speech</h1>
+    <p><b style="color:var(--text)">Bring your own speech:</b> click <b style="color:var(--text)">Import file</b> or drop a Word (.docx), .txt or .md file onto the box. You can also paste text in. For a Google Doc, use File → Download → Microsoft Word, or copy and paste it.</p>
+    <p id="importMsg" role="status" style="color:var(--accent)"></p>
+    <p>Blank lines start a new paragraph. <code>## Heading</code> = section label · <code>*word*</code> = lean on it (orange) · <code> / </code> = short breath · <code>[PAUSE]</code> = full stop · <code>==line==</code> = say from memory (yellow) · <code>[NAME]</code> = fill in (red). Your edits are saved in this browser. "Reset to sample" brings back the example script.</p>
+    <textarea id="text" spellcheck="true" aria-label="Speech text"></textarea>
+    <div class="row">
+      <span class="meta" id="meta"></span>
+      <input type="file" id="file" accept=".txt,.md,.docx,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+      <button id="import">Import file</button>
+      <button id="clear">Clear</button>
+      <button id="sample">Reset to sample</button>
+      <button id="done" style="background:var(--accent);color:#04121b;border-color:var(--accent);font-weight:600">Done</button>
+    </div>
+    <p class="keys">Keys while presenting: Space start/pause · ↑ ↓ nudge · ← → pace · + − text size · Home restart · E edit · M mirror · F fullscreen</p>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script>
+const SAMPLE = `## Welcome
+Good afternoon, everyone. / Thank you for being here. [PAUSE]
+
+This is a *sample script*. / Click the Edit button below / to bring in your own speech. [PAUSE]
+
+## How the marks work
+Words between stars are *orange*, / so you know where to lean in.
+
+A slash is a short breath. / A pause tag is a full stop, / so the point can land. [PAUSE]
+
+==Lines in double equals are yellow.== / Say those from memory / and look at the room.
+
+And [NAME] shows in red, / so you remember to fill it in. [PAUSE]
+
+## Close
+Set your pace, / press Space, / and *speak with confidence.* [PAUSE]
+
+Thank you.`;
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('speech-tp:' + k); return v === null ? d : v; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('speech-tp:' + k, v); } catch {} }
+};
+
+let text = store.get('text', SAMPLE);
+let wordCount = 1, playing = false, last = 0, pos = 0, elapsedMs = 0, raf = 0, wakeLock = null, hideTimer = 0;
+const scroller = $('scroller'), scriptEl = $('script'), app = $('app');
+
+function esc(s) { return s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+function render() {
+  const blocks = text.replace(/\r/g, '').replace(/^(##.*)$/gm, '\n$1\n').split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
+  scriptEl.innerHTML = blocks.map(b => {
+    if (b.startsWith('##')) return '<h2>' + esc(b.replace(/^#+\s*/, '')) + '</h2>';
+    return '<p>' + esc(b).replace(/\n/g, '<br>')
+      .replace(/==(.+?)==/g, '<span class="key">$1</span>')
+      .replace(/\*(.+?)\*/g, '<span class="e">$1</span>')
+      .replace(/ \/ /g, ' <span class="br">/</span> ')
+      .replace(/\[NAME\]/gi, '<span class="name">[NAME]</span>')
+      .replace(/\[(?!NAME\])[^\]]+\]/gi, m => '<span class="cue">' + m.slice(1, -1).toLowerCase() + '</span>') + '</p>';
+  }).join('');
+  const spoken = text.replace(/^##.*$/gm, '').replace(/\[(?!NAME\])[^\]]*\]/gi, '').replace(/ \/ /g, ' ');
+  wordCount = Math.max(1, (spoken.match(/\S+/g) || []).length);
+  updateClock();
+}
+function fmt(sec) { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
+function wpm() { return +$('wpm').value; }
+function travel() { return Math.max(1, scroller.scrollHeight - scroller.clientHeight * 1.0 - scriptEl.offsetHeight * 0 ); }
+function scriptSpan() { // pixels of actual text, excluding top/bottom padding
+  const cs = getComputedStyle(scriptEl);
+  return Math.max(1, scriptEl.offsetHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom));
+}
+function pxPerSec() { return scriptSpan() / (wordCount / (wpm() / 60)); }
+function updateClock() {
+  const totalSec = wordCount / (wpm() / 60);
+  const progress = Math.min(1, scroller.scrollTop / scriptSpan());
+  $('total').textContent = fmt(totalSec);
+  $('remain').textContent = fmt(totalSec * (1 - progress));
+  $('elapsed').textContent = fmt(elapsedMs / 1000);
+  $('meta').textContent = wordCount + ' words · about ' + fmt(totalSec) + ' at ' + wpm() + ' wpm';
+}
+
+function tick(t) {
+  if (!playing) return;
+  const dt = last ? (t - last) / 1000 : 0; last = t;
+  elapsedMs += dt * 1000;
+  pos += pxPerSec() * dt;
+  scroller.scrollTop = pos;
+  if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1) pause();
+  updateClock();
+  raf = requestAnimationFrame(tick);
+}
+async function play() {
+  if (playing) return;
+  if (scroller.scrollTop < 2) await countdown();
+  playing = true; last = 0; pos = scroller.scrollTop;
+  app.classList.add('playing'); $('play').textContent = 'Pause';
+  raf = requestAnimationFrame(tick);
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+  scheduleHide();
+}
+function pause() {
+  playing = false; cancelAnimationFrame(raf);
+  app.classList.remove('playing', 'hide-ui'); $('play').textContent = 'Start';
+  try { wakeLock?.release(); } catch {} wakeLock = null;
+}
+function countdown() {
+  return new Promise(res => {
+    const el = $('countdown'); let n = 3; el.hidden = false; el.textContent = n;
+    const iv = setInterval(() => { n--; if (n === 0) { clearInterval(iv); el.hidden = true; res(); } else el.textContent = n; }, 700);
+  });
+}
+function restart() { pause(); pos = 0; scroller.scrollTop = 0; elapsedMs = 0; updateClock(); }
+function scheduleHide() { clearTimeout(hideTimer); app.classList.remove('hide-ui'); if (playing) hideTimer = setTimeout(() => app.classList.add('hide-ui'), 2500); }
+function nudge(px) { scroller.scrollTop += px; pos = scroller.scrollTop; updateClock(); }
+
+function setSize(v) { $('size').value = v; scriptEl.style.setProperty('--size', v + 'px'); $('sizeVal').textContent = v + 'px'; store.set('size', v); updateClock(); }
+function setWpm(v) { $('wpm').value = v; $('wpmVal').textContent = $('wpm').value + ' wpm'; store.set('wpm', $('wpm').value); updateClock(); }
+function setWidth(v) { $('width').value = v; scriptEl.style.setProperty('--width', v + 'ch'); store.set('width', v); }
+function toggleMirror() { const on = !scriptEl.classList.contains('mirror'); scriptEl.classList.toggle('mirror', on); $('mirror').setAttribute('aria-pressed', on); store.set('mirror', on ? '1' : ''); }
+async function toggleFull() { try { document.fullscreenElement ? await document.exitFullscreen() : await document.documentElement.requestFullscreen(); } catch {} }
+
+function openEditor() { pause(); msg(''); $('text').value = text; $('text').oninput(); $('editor').hidden = false; $('text').focus(); }
+function closeEditor() { text = $('text').value.trim() || SAMPLE; store.set('text', text); render(); $('editor').hidden = true; restart(); }
+
+$('play').onclick = () => playing ? pause() : play();
+$('restart').onclick = restart;
+$('edit').onclick = openEditor;
+$('done').onclick = closeEditor;
+$('sample').onclick = () => { $('text').value = SAMPLE; $('text').oninput(); msg(''); };
+$('clear').onclick = () => { $('text').value = ''; $('text').oninput(); $('text').focus(); msg(''); };
+$('import').onclick = () => $('file').click();
+$('file').onchange = e => { if (e.target.files[0]) importFile(e.target.files[0]); e.target.value = ''; };
+const ta = $('text');
+ta.addEventListener('dragover', e => { e.preventDefault(); ta.classList.add('drag'); });
+ta.addEventListener('dragleave', () => ta.classList.remove('drag'));
+ta.addEventListener('drop', e => { e.preventDefault(); ta.classList.remove('drag'); const f = e.dataTransfer.files[0]; if (f) importFile(f); });
+function msg(s, bad) { const el = $('importMsg'); el.textContent = s; el.style.color = bad ? 'var(--cue)' : 'var(--accent)'; }
+async function importFile(f) {
+  const name = f.name.toLowerCase();
+  try {
+    let t;
+    if (name.endsWith('.docx')) {
+      if (!window.mammoth) throw new Error('Word import could not load. Check your internet connection, or copy the text from Word and paste it here.');
+      t = (await mammoth.extractRawText({ arrayBuffer: await f.arrayBuffer() })).value;
+    } else if (name.endsWith('.txt') || name.endsWith('.md') || f.type.startsWith('text/')) {
+      t = await f.text();
+    } else {
+      throw new Error('That file type isn\'t supported. Use a .docx, .txt or .md file, or paste the text.');
+    }
+    t = t.replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
+    if (!t) throw new Error(f.name + ' has no text in it.');
+    ta.value = t; ta.oninput();
+    msg('Imported ' + f.name + '. Check it over, then press Done.');
+  } catch (err) { msg(err.message || 'That file could not be read.', true); }
+}
+$('text').oninput = () => { const w = ($('text').value.replace(/^##.*$/gm, '').replace(/\[[^\]]*\]/g, '').match(/\S+/g) || []).length; $('meta').textContent = w + ' words · about ' + fmt(w / (wpm() / 60)) + ' at ' + wpm() + ' wpm'; };
+$('wpm').oninput = e => setWpm(e.target.value);
+$('size').oninput = e => setSize(e.target.value);
+$('width').oninput = e => setWidth(e.target.value);
+$('mirror').onclick = toggleMirror;
+$('full').onclick = toggleFull;
+scroller.addEventListener('wheel', () => { pos = scroller.scrollTop; setTimeout(() => { pos = scroller.scrollTop; updateClock(); }, 50); }, { passive: true });
+scroller.addEventListener('scroll', () => { if (!playing) { pos = scroller.scrollTop; updateClock(); } });
+scroller.addEventListener('click', () => playing ? pause() : play());
+document.addEventListener('mousemove', scheduleHide);
+document.addEventListener('visibilitychange', async () => { if (playing && document.visibilityState === 'visible') { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {} } });
+document.addEventListener('keydown', e => {
+  if (!$('editor').hidden) { if (e.key === 'Escape') closeEditor(); return; }
+  if (e.target.tagName === 'INPUT' && e.key !== ' ') return;
+  const k = e.key;
+  if (k === ' ') { e.preventDefault(); playing ? pause() : play(); }
+  else if (k === 'ArrowDown') { e.preventDefault(); nudge(60); }
+  else if (k === 'ArrowUp') { e.preventDefault(); nudge(-60); }
+  else if (k === 'ArrowRight') setWpm(+wpm() + 5);
+  else if (k === 'ArrowLeft') setWpm(+wpm() - 5);
+  else if (k === '+' || k === '=') setSize(Math.min(110, +$('size').value + 4));
+  else if (k === '-') setSize(Math.max(28, +$('size').value - 4));
+  else if (k === 'Home') restart();
+  else if (k === 'e' || k === 'E') { e.preventDefault(); openEditor(); }
+  else if (k === 'm' || k === 'M') toggleMirror();
+  else if (k === 'f' || k === 'F') toggleFull();
+});
+
+setSize(+store.get('size', 56)); setWpm(+store.get('wpm', 140)); setWidth(+store.get('width', 34));
+if (store.get('mirror', '')) toggleMirror();
+render();
+</script>
+
+</body>
+</html>
