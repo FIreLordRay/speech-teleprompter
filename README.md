@@ -2,9 +2,11 @@
 
 A free teleprompter that runs in your browser. Import your speech, set your pace, and present. Nothing to install, no account, no server. Everything is in one file: `index.html`.
 
+**Live site: https://firelordray.github.io/speech-teleprompter/**
+
 ## Use it
 
-- **Online:** open the GitHub Pages link for this repo (see *Publish with GitHub Pages* below).
+- **Online:** open **https://firelordray.github.io/speech-teleprompter/** on a laptop or phone.
 - **Offline:** download `index.html` and double-click it.
 
 1. Click **Edit / import script**.
@@ -48,7 +50,9 @@ The pace is in **words per minute**, so the clock at the bottom shows how long t
 
 The screen stays awake while the speech is scrolling, in browsers that allow it.
 
-## Publish with GitHub Pages
+## Publish your own copy with GitHub Pages
+
+This repo is already published at the link above. To host your own copy, fork it, then:
 
 1. On GitHub, go to **Settings → Pages**.
 2. Under **Build and deployment**, choose **Deploy from a branch**, pick `main` and `/ (root)`, and click **Save**.
